@@ -18,6 +18,7 @@ use {
     png::Decoder,
 };
 
+use std::env;
 use std::fmt::{self, Display, Formatter};
 
 #[cfg(target_os = "macos")]
@@ -49,6 +50,12 @@ use crate::display::SizeInfo;
 /// Window icon for `_NET_WM_ICON` property.
 #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
 const WINDOW_ICON: &[u8] = include_bytes!("../../extra/logo/compat/alacritty-term.png");
+
+/// Environment variable which disables IME cursor area updates.
+///
+/// On X11 each update is a synchronous XIM round trip, during which committed text and keys
+/// forwarded by the input method can get reordered (rust-windowing/winit#4777).
+const ALACRITTY_NO_IME_SPOT_ENV: &str = "ALACRITTY_NO_IME_SPOT";
 
 /// This should match the definition of IDI_ICON from `alacritty.rc`.
 #[cfg(windows)]
@@ -122,6 +129,7 @@ pub struct Window {
     current_mouse_cursor: CursorIcon,
     mouse_visible: bool,
     ime_inhibitor: ImeInhibitor,
+    ime_spot_disabled: bool,
 }
 
 impl Window {
@@ -214,6 +222,7 @@ impl Window {
             window,
             is_x11,
             ime_inhibitor: Default::default(),
+            ime_spot_disabled: env::var_os(ALACRITTY_NO_IME_SPOT_ENV).is_some(),
         })
     }
 
@@ -448,6 +457,10 @@ impl Window {
 
     /// Adjust the IME editor position according to the new location of the cursor.
     pub fn update_ime_position(&self, point: Point<usize>, size: &SizeInfo) {
+        if self.ime_spot_disabled {
+            return;
+        }
+
         // NOTE: X11 doesn't support cursor area, so we need to offset manually to not obscure
         // the text.
         let offset = if self.is_x11 { 1 } else { 0 };
